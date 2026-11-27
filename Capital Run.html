@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Capital Run</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#0d1320;--g1:#22304d;--pn:#172033;--tx:#e8edf6;--mu:#93a0b8;--ac:#4cc9a0;--bd:#2c3752;--bad:#ef6a6a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#dfe7f2;--g1:#f4f8ff;--pn:#fff;--tx:#18202f;--mu:#5a6780;--ac:#0b8f6a;--bd:#ccd5e4;--bad:#c93a3a}}
+:root[data-theme="dark"]{--bg:#0d1320;--g1:#22304d;--pn:#172033;--tx:#e8edf6;--mu:#93a0b8;--ac:#4cc9a0;--bd:#2c3752;--bad:#ef6a6a}
+:root[data-theme="light"]{--bg:#dfe7f2;--g1:#f4f8ff;--pn:#fff;--tx:#18202f;--mu:#5a6780;--ac:#0b8f6a;--bd:#ccd5e4;--bad:#c93a3a}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{display:grid;grid-template-columns:1fr 370px;height:100%}
+#stage{position:relative;min-height:0;background:radial-gradient(ellipse at 50% 35%,var(--g1),var(--bg))}
+#cv{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#hint{position:absolute;left:10px;bottom:8px;color:var(--mu);font-size:12px;pointer-events:none}
+#pn{background:var(--pn);border-left:1px solid var(--bd);overflow:auto;padding:12px;min-height:0}
+@media(max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:40% 60%}#pn{border-left:0;border-top:1px solid var(--bd)}}
+h1{font-size:18px;margin:0 0 2px}h3{font-size:13px;margin:12px 0 6px;color:var(--mu);text-transform:uppercase;letter-spacing:.05em}
+.mu{color:var(--mu)}.up{color:var(--ac)}.dn{color:var(--bad)}
+.b{background:var(--ac);color:#06130e;border:0;border-radius:8px;padding:7px 11px;font:600 13px inherit;font-family:inherit;cursor:pointer}
+.b:disabled{opacity:.35;cursor:default}.s{background:transparent;color:var(--tx);border:1px solid var(--bd);padding:4px 8px;font-weight:500}
+.card{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;margin-bottom:6px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.les{border-left:3px solid var(--ac);padding:6px 10px;background:color-mix(in srgb,var(--ac) 10%,transparent);border-radius:0 8px 8px 0}
+#ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,8,14,.72);z-index:5;padding:16px}
+#ov>div{background:var(--pn);border:1px solid var(--bd);border-radius:14px;padding:18px;max-width:420px;width:100%}
+input{width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit;margin:8px 0}
+details{margin-top:10px}summary{cursor:pointer;color:var(--mu)}
+</style></head><body>
+<div id="app"><div id="stage"><canvas id="cv"></canvas><div id="hint">Drag to rotate, scroll to zoom</div></div><div id="pn"></div></div>
+<div id="ov"><div><h1>Capital Run</h1>
+<p class="mu">Race 40 tiles to the finish. You start with $2,000. Your final score is your cash after cashing out, plus a small bonus for finishing first. Every choice you make with your money matters more than the dice.</p>
+<input id="nm" maxlength="16" placeholder="Your name" autocomplete="off"><button class="b" data-a="join" style="width:100%">Join the race</button>
+<p class="mu" style="font-size:12px">Everyone who opens this page and joins before the first roll plays in the same live game. Turn order follows join order.</p></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const A=[
+{n:'Savings',k:'sav',dr:.015,v:.002,c:0x7fd1ae,i:'Savings: tiny but steady returns and almost no risk. Over decades, cash can lose buying power to inflation.'},
+{n:'Bonds',k:'bond',dr:.01,v:.012,c:0x6aa9e8,i:'Bonds: you lend money and collect interest. Lower returns than shares, and far calmer.'},
+{n:'Index Fund',k:'idx',dr:.025,v:.06,c:0xf2c14e,i:'Index Fund: owns hundreds of companies at once. Diversification cuts risk without needing to pick winners.'},
+{n:'Tech Stock',k:'tech',dr:.03,v:.15,c:0xb67cf0,i:'Tech Stock: one sector, one bet. High growth potential, but big swings and deep crashes.'},
+{n:'Hype Coin',k:'hype',dr:0,v:.35,c:0xf07a5a,i:'Hype Coin: extreme swings and no earnings behind it. A few holders get lucky; most lose. That is gambling, not investing.'}];
+const T=[];for(let i=0;i<40;i++)T.push(i==0?'start':i==10?'tax':i==20?'div':i==30?'sem':i==39?'fin':['bond','idx','event','tech','sav','hype','event','fee'][i%8]);
+const SEED=20261127;
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const P=[A.map(()=>100)],CR=[false];
+function mk(r){while(P.length<=r){const i=P.length,g=rng(SEED+i*977),pv=P[i-1];
+const gs=()=>{let s=0;for(let k=0;k<6;k++)s+=g();return(s-3)*1.4142};
+const cr=g()<.09;CR[i]=cr;
+P[i]=A.map((a,j)=>{let x=a.dr+a.v*gs();if(cr)x-=[0,0,.1,.22,.45][j];if(j==4&&g()<.1)x+=.7;return pv[j]*(1+Math.max(x,-.7))})}}
+const price=r=>{mk(r);return P[r]};
+/* ---------- 3D ---------- */
+const cv=$('#cv'),ren=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true}),sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,200);
+let th=.7,ph=.85,rad=34;
+const setCam=()=>{cam.position.set(rad*Math.sin(ph)*Math.sin(th),rad*Math.cos(ph),rad*Math.sin(ph)*Math.cos(th));cam.lookAt(0,0,0)};
+function rs(){const b=$('#stage');ren.setSize(b.clientWidth,b.clientHeight,false);cam.aspect=b.clientWidth/Math.max(1,b.clientHeight);cam.updateProjectionMatrix()}
+new ResizeObserver(rs).observe($('#stage'));
+let dr=null;cv.addEventListener('pointerdown',e=>{dr=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!dr)return;th-=(e.clientX-dr[0])*.008;ph=Math.min(1.4,Math.max(.3,ph-(e.clientY-dr[1])*.006));dr=[e.clientX,e.clientY]});
+cv.addEventListener('pointerup',()=>dr=null);
+cv.addEventListener('wheel',e=>{e.preventDefault();rad=Math.min(55,Math.max(14,rad+e.deltaY*.02))},{passive:false});
+sc.add(new THREE.AmbientLight(0xffffff,.75));const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(10,22,8);sc.add(dl);
+const gr=new THREE.Mesh(new THREE.CircleGeometry(26,48),new THREE.MeshLambertMaterial({color:0x2a3a55}));gr.rotation.x=-Math.PI/2;gr.position.y=-.3;sc.add(gr);
+const bd=new THREE.Mesh(new THREE.BoxGeometry(18,.3,18),new THREE.MeshLambertMaterial({color:0x1b2a40}));bd.position.y=-.1;sc.add(bd);
+function tp(i){let x,z;if(i<=10){x=i;z=10}else if(i<=20){x=10;z=10-(i-10)}else if(i<=30){x=10-(i-20);z=0}else{x=0;z=i-30}return new THREE.Vector3((x-5)*2,0,(z-5)*2)}
+const HX=a=>'#'+a.c.toString(16).padStart(6,'0');
+const NM={event:'EVENT ?',fee:'FEES',start:'START',tax:'TAX',div:'DIVIDEND',sem:'SEMINAR',fin:'FINISH'},BG={event:'#f1e7c4',fee:'#9aa0ab',start:'#bfe9d4',tax:'#e8a5a5',div:'#b9e0f5',sem:'#f5d9a8',fin:'#ffe066'};
+T.forEach((t,i)=>{const a=A.findIndex(x=>x.k==t),p=tp(i);
+const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');
+g.fillStyle=a>=0?HX(A[a]):BG[t];g.fillRect(0,0,128,128);g.fillStyle='#10151f';g.textAlign='center';g.font='bold 20px sans-serif';
+const ws=(a>=0?A[a].n:NM[t]).split(' '),base=a>=0?112:70;ws.forEach((w,k)=>g.fillText(w,64,base-(ws.length-1-k)*22));
+g.font='12px sans-serif';g.textAlign='left';g.fillText(i,8,16);
+const tile=new THREE.Mesh(new THREE.BoxGeometry(1.9,.3,1.9),new THREE.MeshLambertMaterial({color:0x34425e}));tile.position.copy(p);sc.add(tile);
+const pl=new THREE.Mesh(new THREE.PlaneGeometry(1.76,1.76),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c)}));pl.rotation.x=-Math.PI/2;pl.position.set(p.x,.16,p.z);sc.add(pl);
+if(a>=0){const h=[.3,.6,1.1,1.8,2.4][a],m=new THREE.MeshLambertMaterial({color:A[a].c}),b=new THREE.Mesh(a==4?new THREE.ConeGeometry(.45,h,6):new THREE.BoxGeometry(.6,h,.6),m);b.position.set(p.x,.15+h/2,p.z-.45);sc.add(b)}});
+const PC=[0xff5a5f,0x3da5ff,0xffd24a,0x5fd38d,0xc77dff,0xff9f43,0x2ee6d6,0xf06bb4],SL=[[-.45,-.3],[.45,-.3],[-.45,.45],[.45,.45],[0,.1],[0,-.5],[-.6,.1],[.6,.1]];
+const pawns={};
+function mkPawn(c){const g=new THREE.Group(),m=new THREE.MeshLambertMaterial({color:c}),b=new THREE.Mesh(new THREE.CylinderGeometry(.2,.3,.7,16),m),h=new THREE.Mesh(new THREE.SphereGeometry(.25,16,12),m);b.position.y=.5;h.position.y=1.05;g.add(b,h);sc.add(g);return g}
+const dm=[1,2,3,4,5,6].map(n=>{const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,64,64);g.fillStyle='#111';g.font='bold 44px sans-serif';g.textAlign='center';g.fillText(n,32,48);return new THREE.MeshLambertMaterial({map:new THREE.CanvasTexture(c)})});
+const die=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5),dm);die.position.set(0,2.2,0);sc.add(die);
+const FR={1:[0,0,Math.PI/2],2:[0,0,-Math.PI/2],3:[0,0,0],4:[Math.PI,0,0],5:[-Math.PI/2,0,0],6:[Math.PI/2,0,0]};
+let dAnim=null;const playDice=(d,cb)=>{dAnim={t:0,d,cb}};
+let last=performance.now();
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;
+for(const k in pawns){const w=pawns[k];let b=tp(w.cur),y=0;
+if(w.cur<w.tgt){w.t+=dt;const f=Math.min(1,w.t/.2);b=b.clone().lerp(tp(w.cur+1),f);y=Math.sin(Math.PI*f)*.6;if(w.t>=.2){w.t=0;w.cur++}}
+w.g.position.set(b.x+w.ox,.15+y,b.z+w.oz)}
+if(dAnim){dAnim.t+=dt;die.rotation.x+=dt*14;die.rotation.y+=dt*11;die.rotation.z+=dt*9;die.position.y=2.2+Math.abs(Math.sin(dAnim.t*6))*1.3;
+if(dAnim.t>1){die.rotation.set(...FR[dAnim.d]);die.position.y=2.2;const c=dAnim.cb;dAnim=null;c&&c()}}
+setCam();ren.render(sc,cam);requestAnimationFrame(loop)}
+rs();requestAnimationFrame(loop);
+/* ---------- game state ---------- */
+const START=2000;
+let room=null,others=[],seen={},rolled=false,rolling=false,pending=null,les='',R=0;
+const me={n:'',c:Math.floor(Math.random()*8),p:0,cash:START,h:[0,0,0,0,0],t:0,f:0,j:0,d:0,m:'Ready.'};
+const sync=()=>{if(room&&me.n)try{room.presence(JSON.parse(JSON.stringify(me)))}catch(e){}};
+const players=()=>me.n?[{...me,k:'me',me:true},...others].sort((a,b)=>a.j-b.j||(a.k<b.k?-1:1)):[];
+const calcR=ps=>{const al=ps.filter(p=>!p.f);return al.length?Math.min(...al.map(p=>p.t)):Math.max(0,...ps.map(p=>p.t))};
+const activeP=ps=>ps.filter(p=>!p.f).sort((a,b)=>a.t-b.t||a.j-b.j||(a.k<b.k?-1:1))[0];
+const nw=(p,r=R)=>{const pr=price(r);return p.cash+p.h.reduce((s,u,i)=>s+u*pr[i],0)};
+const myTurn=()=>{const a=activeP(players());return !!(a&&a.me)};
+const fee=a=>T[me.p]==A[a].k?0:.015;
+function buy(a,amt){amt=Math.min(amt,me.cash);if(amt<=0)return;me.h[a]+=amt*(1-fee(a))/price(R)[a];me.cash-=amt}
+function sell(a){me.cash+=me.h[a]*price(R)[a]*(1-fee(a));me.h[a]=0}
+function pay(amt){if(me.cash>=amt){me.cash-=amt;return}let need=amt-me.cash;me.cash=0;const pr=price(R);
+for(const a of [4,3,2,1,0]){if(need<=0)break;const val=me.h[a]*pr[a],take=Math.min(val,need/.95);me.h[a]-=take/pr[a];need-=take*.95}
+if(need>0)me.cash-=need}
+const EV=[
+{t:'Salary bonus: you receive $300.',l:'Regular income you can invest is the engine of long-term wealth.',f:()=>{me.cash+=300}},
+{t:'Emergency repair bill: you owe $400.',l:'If cash runs short you are forced to sell investments at whatever price the market gives you, plus a penalty. An emergency fund prevents that.',f:()=>pay(400)},
+{t:'A social media post says Hype Coin is going to the moon. Put in $300?',l:'Fear of missing out makes people buy near the top. Ask why the price should rise before you buy.',ch:[['Buy $300 of Hype Coin',()=>buy(4,300)],['Ignore it',()=>{}]]},
+{t:'A stranger promises guaranteed 40% returns in a month. Send $300?',l:'Guaranteed high returns are the classic scam signal. Real investments never guarantee returns.',ch:[['Send $300',()=>{pay(300);me.m='Lost $300 to a scam.'}],['Walk away',()=>{}]]},
+{t:'Dividend surprise: your Index Fund holding pays out 3%.',l:'Companies share profits with owners. Reinvesting payouts is how compounding works.',f:()=>{me.cash+=me.h[2]*price(R)[2]*.03}}];
+function land(){const t=T[me.p],pr=price(R),ai=A.findIndex(x=>x.k==t);let m='',l='';
+if(ai>=0){m='Landed on '+A[ai].n+' (no trade fee here).';l=A[ai].i}
+else if(t=='fee'){const f=Math.min(100,Math.max(0,me.cash));me.cash-=f;m='Paid $'+Math.round(f)+' in account fees.';l='Fees compound too. A 1% yearly fee can cost around a quarter or more of final wealth over 40 years.'}
+else if(t=='tax'){const x=Math.round(Math.max(0,nw(me)-START)*.1);pay(x);m='Paid $'+x+' tax on gains.';l='Profits are usually taxed, so judge returns after tax and fees, not before.'}
+else if(t=='div'){const v=(me.h[1]*pr[1]+me.h[2]*pr[2])*.03;me.cash+=v;m='Dividend day: +$'+Math.round(v)+' from Bonds and Index Fund.';l='Income from investments can be reinvested so it earns returns of its own.'}
+else if(t=='sem'){me.cash+=200;m='Seminar: +$200 grant for learning.';l='Investing in your own skills often beats any asset.'}
+else if(t=='fin'){m='Finish line reached. End your turn to cash out.';l='Arriving first earns a bonus, but a bigger bank balance wins more.'}
+else{const e=EV[Math.floor(Math.random()*EV.length)];m=e.t;l=e.l;if(e.ch)pending=e;else e.f()}
+me.m=m;les=l}
+function roll(){if(!myTurn()||rolled||rolling||pending)return;rolling=true;const d=1+Math.floor(Math.random()*6);render();
+playDice(d,()=>{me.d=d;me.p=Math.min(39,me.p+d);rolled=true;rolling=false;land();sync();render()})}
+function endTurn(){if(!myTurn()||!rolled||pending)return;if(me.p>=39){for(let a=0;a<5;a++){me.cash+=me.h[a]*price(R)[a];me.h[a]=0}me.f=Date.now();me.m='Crossed the finish line and cashed out.'}
+me.t++;rolled=false;les='';sync();render()}
+/* ---------- UI ---------- */
+function spark(a){const v=[];for(let r=0;r<=R;r++)v.push(price(r)[a]);const mn=Math.min(...v),mx=Math.max(...v);
+const pts=v.map((y,i)=>((R?i/R:0)*64).toFixed(1)+','+(20-(mx==mn?.5:(y-mn)/(mx-mn))*18).toFixed(1)).join(' ');
+return `<svg width="64" height="22" viewBox="0 0 64 22"><polyline fill="none" stroke="${HX(A[a])}" stroke-width="2" points="${pts}"/></svg>`}
+function render(){const ps=players();if(!ps.length)return;R=calcR(ps);mk(R+1);syncPawns(ps);
+const act=activeP(ps),mine=!!(act&&act.me),done=ps.every(p=>p.f),canT=mine&&!pending&&!rolling&&!me.f;
+let h=`<h1>Capital Run</h1><div class="mu">Round ${R+1} · ${room?'Live room':'Solo practice (live room unavailable)'}</div>`;
+if(CR[R])h+=`<div class="card dn"><b>Market news:</b> a crash hit risky assets this round.</div>`;
+if(done){h+=results(ps)}else{
+h+=`<h3>Your turn</h3><div class="card">${mine?(rolling?'Rolling...':`<b>It is your turn.</b> Trade if you like, then ${rolled?'end your turn.':'roll.'}`):`Waiting for <b>${esc(act?act.n:'')}</b>...`}`;
+h+=`<div class="row" style="margin-top:8px"><button class="b" data-a="roll" ${mine&&!rolled&&!rolling&&!pending?'':'disabled'}>Roll dice</button><button class="b" data-a="end" ${mine&&rolled&&!pending?'':'disabled'}>End turn</button></div></div>`;
+if(pending)h+=`<div class="card"><b>${esc(pending.t)}</b><div class="row" style="margin-top:8px">${pending.ch.map((c,i)=>`<button class="b" data-a="ch:${i}">${esc(c[0])}</button>`).join('')}</div></div>`;
+if(les)h+=`<div class="les">${esc(les)}</div>`}
+h+=`<h3>Players</h3>`+ps.map(p=>`<div class="card"><div class="row"><span><span class="dot" style="background:#${PC[p.c%8].toString(16).padStart(6,'0')}"></span><b>${esc(p.n)}</b>${act&&act.k==p.k&&!done?' (turn)':''}${p.me?' (you)':''}</span><span>$${Math.round(nw(p))}</span></div><div class="mu" style="font-size:12px">Tile ${p.p}/39${p.f?' · finished':''} · ${esc(p.m)}</div></div>`).join('');
+const pr=price(R),pv=R?price(R-1):pr;
+h+=`<h3>Market and your portfolio</h3><div class="mu" style="font-size:12px;margin-bottom:6px">Cash: $${Math.round(me.cash)} · Net worth: $${Math.round(nw(me))}. Prices update once per round. Trades cost 1.5% unless you stand on that asset tile.</div>`;
+h+=A.map((a,i)=>{const c=(pr[i]/pv[i]-1)*100;return `<div class="card"><div class="row"><b style="color:${HX(a)}">${a.n}</b><span>${pr[i].toFixed(0)} <span class="${c<0?'dn':'up'}">${c>=0?'+':''}${c.toFixed(1)}%</span></span>${spark(i)}</div><div class="row" style="margin-top:6px"><span class="mu">Held: $${Math.round(me.h[i]*pr[i])}</span><span><button class="b s" data-a="buy:${i}:250" ${canT?'':'disabled'}>Buy 250</button> <button class="b s" data-a="buy:${i}:1000" ${canT?'':'disabled'}>Buy 1000</button> <button class="b s" data-a="sell:${i}" ${canT?'':'disabled'}>Sell all</button></span></div></div>`}).join('');
+h+=`<details><summary>How it works</summary><p class="mu">Roll to move. Land on tiles for events, fees and tips. At the finish line you cash out everything. Final score is cash plus a bonus of $400 for first and $200 for second place. Risky assets can grow more, but they swing hard and crash together. Prices follow a seeded simulation, so every player sees the same market. This is a teaching game, not financial advice.</p></details>`;
+$('#pn').innerHTML=h}
+function results(ps){const o=[...ps].sort((a,b)=>a.f-b.f),sc2=o.map((p,i)=>({p,s:Math.round(p.cash+([400,200][i]||0))})).sort((a,b)=>b.s-a.s);
+const base=Math.round(START*Math.pow(1.015,me.t)),mine=Math.round(me.cash);
+return `<h3>Final results</h3>`+sc2.map((x,i)=>`<div class="card row"><span>${i+1}. <b>${esc(x.p.n)}</b>${x.p.me?' (you)':''}</span><span>$${x.s}</span></div>`).join('')+
+`<div class="les">You finished with $${mine} before bonuses. Putting all $${START} in Savings and just walking the board would have given about $${base}. ${mine>=base?'You beat the do-nothing baseline: your risk was rewarded this time, which is not guaranteed.':'You trailed the do-nothing baseline, so take a look at your fees and your biggest losses. Risk does not always pay.'}</div><div style="margin-top:8px"><button class="b" data-a="again">Play again</button></div>`}
+function syncPawns(ps){const keys=new Set(ps.map(p=>p.k));for(const k in pawns)if(!keys.has(k)){sc.remove(pawns[k].g);delete pawns[k]}
+ps.forEach((p,i)=>{let w=pawns[p.k];if(!w){w=pawns[p.k]={g:mkPawn(PC[p.c%8]),cur:p.p,t:0,tgt:p.p,ox:0,oz:0}}
+const s=SL[i%8];w.ox=s[0];w.oz=s[1];if(p.p<w.cur){w.cur=p.p;w.t=0}w.tgt=p.p})}
+function join(){const n=$('#nm').value.trim().slice(0,16)||'Player'+Math.floor(Math.random()*90+10);const ps=players();
+me.n=n;me.j=Date.now();me.t=calcR(others.filter(o=>o.n).length?others:[]);me.m='Joined the race.';$('#ov').remove();sync();render()}
+function again(){Object.assign(me,{p:0,cash:START,h:[0,0,0,0,0],t:0,f:0,d:0,m:'Playing again.'});rolled=false;pending=null;les='';sync();render()}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b||b.disabled)return;const [a,x,y]=b.dataset.a.split(':');
+if(a=='join')join();else if(a=='roll')roll();else if(a=='end')endTurn();else if(a=='again')again();
+else if(a=='buy'&&myTurn()&&!pending){buy(+x,+y);sync();render()}
+else if(a=='sell'&&myTurn()&&!pending){sell(+x);sync();render()}
+else if(a=='ch'&&pending){const c=pending.ch[+x];pending=null;c[1]();sync();render()}});
+(async()=>{try{const r=await (window.claude&&window.claude.use?window.claude.use('room'):null);if(!r)return;room=r;
+room.onPeers(ch=>{others=ch.peers.filter(p=>!p.isMe&&p.kind==='viewer'&&p.presence&&p.presence.n).map(p=>({...p.presence,k:p.peer}));
+others.forEach(o=>{const sig=o.t+':'+o.d;if(seen[o.k]!==undefined&&seen[o.k]!==sig&&o.d&&!dAnim)playDice(o.d);seen[o.k]=sig});render()});
+sync();render()}catch(e){}})();
+</script></body></html>
