@@ -25,12 +25,15 @@ h1{font-size:18px;margin:0 0 2px}h3{font-size:13px;margin:12px 0 6px;color:var(-
 #ov>div{background:var(--pn);border:1px solid var(--bd);border-radius:14px;padding:18px;max-width:420px;width:100%}
 input{width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit;margin:8px 0}
 details{margin-top:10px}summary{cursor:pointer;color:var(--mu)}
+#cas{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,8,14,.75);z-index:4;padding:12px}#cas[hidden]{display:none}.cb{background:var(--pn);border:1px solid var(--bd);border-radius:14px;padding:14px;max-width:460px;width:100%;max-height:92vh;overflow:auto;box-sizing:border-box}.cb .b{margin:2px 0}
 </style></head><body>
 <div id="app"><div id="stage"><canvas id="cv"></canvas><div id="hint">Drag to rotate, scroll to zoom</div></div><div id="pn"></div></div>
 <div id="ov"><div><h1>Capital Run</h1>
 <p class="mu">Race 40 tiles to the finish. You start with $2,000. Your final score is your cash after cashing out, plus a small bonus for finishing first. Every choice you make with your money matters more than the dice.</p>
-<input id="nm" maxlength="16" placeholder="Your name" autocomplete="off"><button class="b" data-a="join" style="width:100%">Join the race</button>
-<p class="mu" style="font-size:12px">Everyone who opens this page and joins before the first roll plays in the same live game. Turn order follows join order.</p></div></div>
+<input id="nm" maxlength="16" placeholder="Your name" autocomplete="off"><input id="cd" maxlength="8" placeholder="Lobby code (leave blank to create a new lobby)" autocomplete="off">
+<button class="b" data-a="join" style="width:100%">Create or join lobby</button><button class="b s" data-a="solo" style="width:100%;margin-top:8px">Play solo</button>
+<p class="mu" style="font-size:12px">Create a lobby, then share the code. Friends open this same link and enter the code. The host starts the game once everyone is in. Max 8 players.</p></div></div>
+<div id="cas" hidden></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 const $=s=>document.querySelector(s);
@@ -42,7 +45,7 @@ const A=[
 {n:'Tech Stock',k:'tech',dr:.03,v:.15,c:0xb67cf0,i:'Tech Stock: one sector, one bet. High growth potential, but big swings and deep crashes.'},
 {n:'Hype Coin',k:'hype',dr:0,v:.35,c:0xf07a5a,i:'Hype Coin: extreme swings and no earnings behind it. A few holders get lucky; most lose. That is gambling, not investing.'}];
 const T=[];for(let i=0;i<40;i++)T.push(i==0?'start':i==10?'tax':i==20?'div':i==30?'sem':i==39?'fin':['bond','idx','event','tech','sav','hype','event','fee'][i%8]);
-const SEED=20261127;
+let SEED=20261127,SEEDGO=0;
 function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 const P=[A.map(()=>100)],CR=[false];
 function mk(r){while(P.length<=r){const i=P.length,g=rng(SEED+i*977),pv=P[i-1];
@@ -50,6 +53,7 @@ const gs=()=>{let s=0;for(let k=0;k<6;k++)s+=g();return(s-3)*1.4142};
 const cr=g()<.09;CR[i]=cr;
 P[i]=A.map((a,j)=>{let x=a.dr+a.v*gs();if(cr)x-=[0,0,.1,.22,.45][j];if(j==4&&g()<.1)x+=.7;return pv[j]*(1+Math.max(x,-.7))})}}
 const price=r=>{mk(r);return P[r]};
+function setSeed(g){if(SEEDGO===g)return;SEEDGO=g;SEED=20261127+g%100000;P.length=0;P.push(A.map(()=>100));CR.length=0;CR.push(false)}
 /* ---------- 3D ---------- */
 const cv=$('#cv'),ren=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true}),sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,200);
 let th=.7,ph=.85,rad=34;
@@ -92,10 +96,11 @@ setCam();ren.render(sc,cam);requestAnimationFrame(loop)}
 rs();requestAnimationFrame(loop);
 /* ---------- game state ---------- */
 const START=2000;
-let room=null,others=[],seen={},rolled=false,rolling=false,pending=null,les='',R=0;
-const me={n:'',c:Math.floor(Math.random()*8),p:0,cash:START,h:[0,0,0,0,0],t:0,f:0,j:0,d:0,m:'Ready.'};
-const sync=()=>{if(room&&me.n)try{room.presence(JSON.parse(JSON.stringify(me)))}catch(e){}};
-const players=()=>me.n?[{...me,k:'me',me:true},...others].sort((a,b)=>a.j-b.j||(a.k<b.k?-1:1)):[];
+let base=null,room=null,CODE='',decided=false,others=[],seen={},rolled=false,rolling=false,pending=null,les='',R=0;
+const me={n:'',c:Math.floor(Math.random()*8),p:0,cash:START,h:[0,0,0,0,0],t:0,f:0,j:0,d:0,go:0,w:0,m:'Ready.'};
+const sync=()=>{if(room&&me.n&&!me.w)try{room.presence(JSON.parse(JSON.stringify(me)))}catch(e){}};
+const started=()=>!!(me.go||others.some(o=>o.go));
+const players=()=>me.n&&!me.w?[{...me,k:'me',me:true},...others].sort((a,b)=>a.j-b.j||(a.k<b.k?-1:1)):[];
 const calcR=ps=>{const al=ps.filter(p=>!p.f);return al.length?Math.min(...al.map(p=>p.t)):Math.max(0,...ps.map(p=>p.t))};
 const activeP=ps=>ps.filter(p=>!p.f).sort((a,b)=>a.t-b.t||a.j-b.j||(a.k<b.k?-1:1))[0];
 const nw=(p,r=R)=>{const pr=price(r);return p.cash+p.h.reduce((s,u,i)=>s+u*pr[i],0)};
@@ -125,42 +130,108 @@ function roll(){if(!myTurn()||rolled||rolling||pending)return;rolling=true;const
 playDice(d,()=>{me.d=d;me.p=Math.min(39,me.p+d);rolled=true;rolling=false;land();sync();render()})}
 function endTurn(){if(!myTurn()||!rolled||pending)return;if(me.p>=39){for(let a=0;a<5;a++){me.cash+=me.h[a]*price(R)[a];me.h[a]=0}me.f=Date.now();me.m='Crossed the finish line and cashed out.'}
 me.t++;rolled=false;les='';sync();render()}
+/* ---------- casino (play money only) ---------- */
+let CG='bj',ST={t:'cash',a:100,as:2},G={},stat={};
+const maxBet=()=>ST.t=='cash'?Math.floor(me.cash):ST.t=='asset'?Math.floor(me.h[ST.as]*price(R)[ST.as]):3;
+const ok=()=>{if(!myTurn()||me.f){G.msg='It is not your turn.';return 0}if(ST.a<1||ST.a>maxBet()){G.msg='That stake is more than you own. Pick a smaller one.';return 0}G.b={t:ST.t,a:ST.a,as:ST.as};G.msg='';return 1};
+function settle(p){const b=G.b,x=b.a*p;if(b.t=='cash')me.cash+=x;else if(b.t=='asset')me.h[b.as]=Math.max(0,me.h[b.as]+x/price(R)[b.as]);else me.p=Math.max(0,Math.min(38,me.p+Math.round(x)));
+const s=stat[CG]=stat[CG]||{n:0,net:0};s.n++;s.net+=p;G.busy=0;const w=p>0?'won':p<0?'lost':'pushed',v=Math.round(Math.abs(p*b.a)*100)/100;
+G.msg=`You ${w}${p?' '+(b.t=='tiles'?v+' tile(s)':'$'+v+(b.t=='asset'?' of shares':'')):''}.`;me.m='Gambled at the casino and '+w+'.';sync();render();cRender()}
+const cd=()=>({r:1+Math.floor(Math.random()*13),s:Math.floor(Math.random()*4)});
+const cn=c=>['','A',2,3,4,5,6,7,8,9,10,'J','Q','K'][c.r]+'♠♥♦♣'[c.s];
+const bv=h=>{let t=0,a=0;h.forEach(c=>{t+=c.r>10?10:c.r==1?(a++,11):c.r});while(t>21&&a>0){t-=10;a--}return t};
+const deck=()=>{const d=[];for(let r=1;r<=13;r++)for(let s=0;s<4;s++)d.push({r,s});for(let i=51;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]]}return d};
+function bjGo(){if(!ok())return cRender();G.busy=1;G.dbl=0;G.p=[cd(),cd()];G.d=[cd(),cd()];G.done=0;if(bv(G.p)==21)bjEnd();else cRender()}
+function bjEnd(){G.done=1;if(bv(G.p)==21&&G.p.length==2)return settle(bv(G.d)==21&&G.d.length==2?0:1.5);while(bv(G.d)<17)G.d.push(cd());const p=bv(G.p),d=bv(G.d);settle((p>21?-1:d>21||p>d?1:p==d?0:-1)*(G.dbl?2:1))}
+const RED=[1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+function rlGo(){if(!ok())return cRender();G.busy=1;G.bet=G.bet||'red';if(G.bet=='num')G.n=Math.min(36,Math.max(0,+($('#rn')?$('#rn').value:17)|0));let i=0;
+const iv=setInterval(()=>{G.show=Math.floor(Math.random()*37);cRender();if(++i>9){clearInterval(iv);const n=Math.floor(Math.random()*37),r=G.bet=='num'?(n==G.n?35:-1):n==0?-1:((G.bet=='red'&&RED.includes(n))||(G.bet=='black'&&!RED.includes(n))||(G.bet=='odd'&&n%2)||(G.bet=='even'&&n%2==0))?1:-1;G.show=n;settle(r)}},80)}
+function dcGo(){if(!ok())return cRender();G.bet=G.bet||'over';const a=1+Math.floor(Math.random()*6),b=1+Math.floor(Math.random()*6),s=a+b;G.r=[a,b];
+settle(G.bet=='seven'?(s==7?4:-1):G.bet=='over'?(s>7?1:-1):(s<7?1:-1))}
+function pe(h){const r=h.map(c=>c.r).sort((a,b)=>a-b),fl=h.every(c=>c.s==h[0].s),n={};r.forEach(x=>n[x]=(n[x]||0)+1);const c=Object.values(n).sort((a,b)=>b-a),rf=r.join()=='1,10,11,12,13',st=new Set(r).size==5&&(r[4]-r[0]==4||rf);
+if(st&&fl)return rf?['Royal flush',500]:['Straight flush',50];if(c[0]==4)return['Four of a kind',25];if(c[0]==3&&c[1]==2)return['Full house',8];if(fl)return['Flush',5];if(st)return['Straight',4];if(c[0]==3)return['Three of a kind',3];
+if(c[0]==2&&c[1]==2)return['Two pair',2];if(c[0]==2){const k=+Object.keys(n).find(x=>n[x]==2);if(k==1||k>10)return['Jacks or better',1]}return['No win',0]}
+function pkGo(){if(!ok())return cRender();const d=deck();G.busy=1;G.h=d.splice(0,5);G.k=d;G.hold=[0,0,0,0,0];G.st=1;G.res='';cRender()}
+function pkDraw(){G.h=G.h.map((c,i)=>G.hold[i]?c:G.k.pop());G.st=2;const r=pe(G.h);G.res=r[0];settle(r[1]-1)}
+function initPool(){const c=$('#pc');if(!c)return;const g=c.getContext('2d'),W=360,H=200,Q=8,pk=[[0,0],[180,0],[360,0],[0,200],[180,200],[360,200]];
+const B=[[90,100,'#fff'],[250,100,'#e33'],[268,91,'#36f'],[268,109,'#fc0']].map(([x,y,k])=>({x,y,k,vx:0,vy:0,on:1}));let dg=null,mv=0,sh=0;
+const pt=e=>{const r=c.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]};
+c.onpointerdown=e=>{if(sh||G.busy)return;const q=pt(e);if(Math.hypot(q[0]-B[0].x,q[1]-B[0].y)<40){dg=q;c.setPointerCapture(e.pointerId)}};
+c.onpointermove=e=>{if(dg)dg=pt(e)};
+c.onpointerup=()=>{if(!dg)return;const dx=B[0].x-dg[0],dy=B[0].y-dg[1],d=Math.hypot(dx,dy);dg=null;if(d<6)return;if(!ok())return cRender();G.busy=1;const l=Math.min(d,120)*.12;B[0].vx=dx/d*l;B[0].vy=dy/d*l;sh=1;mv=1;cRender2()};
+const cRender2=()=>{};
+function step(){for(const b of B){if(!b.on)continue;b.x+=b.vx;b.y+=b.vy;b.vx*=.985;b.vy*=.985;if(b.x<Q){b.x=Q;b.vx*=-1}if(b.x>W-Q){b.x=W-Q;b.vx*=-1}if(b.y<Q){b.y=Q;b.vy*=-1}if(b.y>H-Q){b.y=H-Q;b.vy*=-1}if(pk.some(p=>Math.hypot(b.x-p[0],b.y-p[1])<14))b.on=0}
+for(let i=0;i<4;i++)for(let j=i+1;j<4;j++){const a=B[i],b=B[j];if(!a.on||!b.on)continue;const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy);if(d<2*Q&&d>0){const nx=dx/d,ny=dy/d,v=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;if(v>0){a.vx-=v*nx;a.vy-=v*ny;b.vx+=v*nx;b.vy+=v*ny}const o=(2*Q-d)/2;a.x-=nx*o;a.y-=ny*o;b.x+=nx*o;b.y+=ny*o}}}
+function draw(){g.fillStyle='#0b6b3a';g.fillRect(0,0,W,H);g.fillStyle='#000';pk.forEach(p=>{g.beginPath();g.arc(p[0],p[1],14,0,7);g.fill()});B.forEach(b=>{if(!b.on)return;g.fillStyle=b.k;g.beginPath();g.arc(b.x,b.y,Q,0,7);g.fill()});if(dg){g.strokeStyle='#fff9';g.beginPath();g.moveTo(B[0].x,B[0].y);g.lineTo(B[0].x*2-dg[0],B[0].y*2-dg[1]);g.stroke()}}
+(function f(){if($('#cas').hidden||!c.isConnected)return;if(mv){step();step();if(B.every(b=>!b.on||Math.hypot(b.vx,b.vy)<.05)){mv=0;draw();return settle(B.slice(1).some(b=>!b.on)&&B[0].on?2:-1)}}draw();requestAnimationFrame(f)})()}
+const LS={bj:'Blackjack with perfect play has a house edge of roughly 0.5%. Most people play on feel and face far worse. (This table deals from an endless deck and has no splits.)',rl:'European roulette has a 2.7% house edge on every bet. A single number pays 35 to 1 but wins only 1 time in 37.',dc:'Over and Under both lose on a 7, which comes up 1 roll in 6. Exactly 7 pays 4 to 1 when fair odds are 5 to 1. The house edge is about 16.7% on all three.',pk:'Video poker returns less than you bet on average, even when you hold the right cards. Holding the wrong ones makes it worse.',pl:'Skill changes the odds. This table pays 2 to 1, so you must sink a ball on more than 1 shot in 3 just to break even.'};
+function cRender(){const nm={bj:'Blackjack',rl:'Roulette',dc:'Dice',pk:'Poker',pl:'Pool'},B=(a,l,on)=>`<button class="b ${on?'':'s'}" data-a="${a}" ${G.busy?'disabled':''}>${l}</button> `;
+let h=`<div class="cb"><div class="row"><b>Casino (play money)</b><button class="b s" data-a="cas:x" ${G.busy?'disabled':''}>Close</button></div><div>`+Object.keys(nm).map(k=>B('cas:g:'+k,nm[k],k==CG)).join('')+`</div><h3>Stake</h3><div>`+[['cash','Cash'],['asset','Shares'],['tiles','Tiles']].map(([k,l])=>B('cas:t:'+k,l,ST.t==k)).join('')+`</div>`;
+if(ST.t=='asset')h+=`<div>`+A.map((a,i)=>B('cas:s:'+i,a.n,ST.as==i)).join('')+`</div>`;
+h+=`<div>`+(ST.t=='tiles'?[1,2,3]:[100,250,500,1000]).map(v=>B('cas:a:'+v,ST.t=='tiles'?v+' tile'+(v>1?'s':''):'$'+v,ST.a==v)).join('')+`</div><div class="mu" style="font-size:12px">${ST.t=='tiles'?'Winning moves you forward, losing moves you back. Max 3.':'You can stake up to $'+maxBet()+'.'}</div><h3>${nm[CG]}</h3>`;
+if(CG=='bj'){if(G.p)h+=`<div>Dealer: ${(G.done?G.d:[G.d[0]]).map(cn).join(' ')}${G.done?' ('+bv(G.d)+')':' ?'}</div><div>You: ${G.p.map(cn).join(' ')} (${bv(G.p)})</div>`;
+h+=G.busy&&!G.done?`<button class="b" data-a="cas:h">Hit</button> <button class="b" data-a="cas:st">Stand</button> <button class="b" data-a="cas:dd" ${G.p.length==2&&ST.a*2<=maxBet()?'':'disabled'}>Double</button>`:`<button class="b" data-a="cas:go">Deal</button>`}
+else if(CG=='rl'){h+=`<div>`+[['red','Red 1:1'],['black','Black 1:1'],['odd','Odd 1:1'],['even','Even 1:1'],['num','Number 35:1']].map(([k,l])=>B('cas:b:'+k,l,(G.bet||'red')==k)).join('')+`</div>`;
+if(G.bet=='num')h+=`<input id="rn" type="number" min="0" max="36" value="${G.n==null?17:G.n}">`;if(G.show!=null)h+=`<div style="font-size:26px;font-weight:700">${G.show} ${G.show==0?'(green)':RED.includes(G.show)?'(red)':'(black)'}</div>`;h+=`<button class="b" data-a="cas:go" ${G.busy?'disabled':''}>Spin</button>`}
+else if(CG=='dc'){h+=`<div>`+[['over','Over 7 (1:1)'],['under','Under 7 (1:1)'],['seven','Exactly 7 (4:1)']].map(([k,l])=>B('cas:b:'+k,l,(G.bet||'over')==k)).join('')+`</div>`;if(G.r)h+=`<div style="font-size:22px">Rolled ${G.r[0]} + ${G.r[1]} = ${G.r[0]+G.r[1]}</div>`;h+=`<button class="b" data-a="cas:go">Roll</button>`}
+else if(CG=='pk'){if(G.h)h+=`<div>`+G.h.map((c,i)=>`<button class="b ${G.hold[i]?'':'s'}" data-a="cas:ho:${i}" ${G.st==1?'':'disabled'}>${cn(c)}${G.hold[i]?' HOLD':''}</button>`).join(' ')+`</div><div>${esc(G.res||'Tap cards to hold, then draw.')}</div>`;
+h+=G.st==1&&G.busy?`<button class="b" data-a="cas:dr">Draw</button>`:`<button class="b" data-a="cas:go">Deal (Jacks or better)</button>`}
+else h+=`<canvas id="pc" width="360" height="200" style="width:100%;max-width:420px;border-radius:8px;touch-action:none"></canvas><div class="mu" style="font-size:12px">Drag back from the white ball and release to shoot. Sink a coloured ball without the white one to win 2 to 1. One shot per bet.</div>`;
+if(G.msg)h+=`<div class="card" style="margin-top:8px"><b>${esc(G.msg)}</b></div>`;const s=stat[CG];
+h+=`<div class="les" style="margin-top:8px">${LS[CG]}${s?` Your record here: ${s.n} bet(s), average ${(s.net/s.n*100).toFixed(0)}% per bet.`:''}</div></div>`;$('#cas').innerHTML=h;if(CG=='pl')setTimeout(initPool,0)}
+function cAct(x,y){if(x=='open'){$('#cas').hidden=false;G={};cRender();return}if(x=='x'){if(!G.busy)$('#cas').hidden=true;return}
+const live=['h','st','dd','ho','dr'].includes(x);if(G.busy&&!live)return;
+if(x=='g'){CG=y;G={}}else if(x=='t'){ST.t=y;ST.a=y=='tiles'?1:100}else if(x=='s')ST.as=+y;else if(x=='a')ST.a=+y;else if(x=='b')G.bet=y;
+else if(x=='go'){if(CG=='bj')return bjGo();if(CG=='rl')return rlGo();if(CG=='dc')return dcGo();if(CG=='pk')return pkGo()}
+else if(x=='h'){G.p.push(cd());if(bv(G.p)>21)return bjEnd()}else if(x=='st')return bjEnd();else if(x=='dd'){G.dbl=1;G.p.push(cd());return bjEnd()}
+else if(x=='ho')G.hold[+y]^=1;else if(x=='dr')return pkDraw();cRender()}
 /* ---------- UI ---------- */
 function spark(a){const v=[];for(let r=0;r<=R;r++)v.push(price(r)[a]);const mn=Math.min(...v),mx=Math.max(...v);
 const pts=v.map((y,i)=>((R?i/R:0)*64).toFixed(1)+','+(20-(mx==mn?.5:(y-mn)/(mx-mn))*18).toFixed(1)).join(' ');
 return `<svg width="64" height="22" viewBox="0 0 64 22"><polyline fill="none" stroke="${HX(A[a])}" stroke-width="2" points="${pts}"/></svg>`}
-function render(){const ps=players();if(!ps.length)return;R=calcR(ps);mk(R+1);syncPawns(ps);
+function render(){const ps=players();if(me.w){syncPawns([]);$('#pn').innerHTML=`<h1>Capital Run</h1><div class="card">A game is already in progress in lobby <b>${esc(CODE.toUpperCase())}</b>. You cannot join mid-game. Ask the host to make a new lobby.<div style="margin-top:8px"><button class="b" data-a="back">Back to menu</button></div></div>`;return}
+if(room&&!decided){$('#pn').innerHTML='<h1>Capital Run</h1><div class="mu">Joining lobby...</div>';return}
+if(!ps.length)return;
+if(!started()){syncPawns([]);$('#pn').innerHTML=lobbyHtml(ps);return}
+R=calcR(ps);mk(R+1);syncPawns(ps);
 const act=activeP(ps),mine=!!(act&&act.me),done=ps.every(p=>p.f),canT=mine&&!pending&&!rolling&&!me.f;
 let h=`<h1>Capital Run</h1><div class="mu">Round ${R+1} · ${room?'Live room':'Solo practice (live room unavailable)'}</div>`;
 if(CR[R])h+=`<div class="card dn"><b>Market news:</b> a crash hit risky assets this round.</div>`;
 if(done){h+=results(ps)}else{
 h+=`<h3>Your turn</h3><div class="card">${mine?(rolling?'Rolling...':`<b>It is your turn.</b> Trade if you like, then ${rolled?'end your turn.':'roll.'}`):`Waiting for <b>${esc(act?act.n:'')}</b>...`}`;
-h+=`<div class="row" style="margin-top:8px"><button class="b" data-a="roll" ${mine&&!rolled&&!rolling&&!pending?'':'disabled'}>Roll dice</button><button class="b" data-a="end" ${mine&&rolled&&!pending?'':'disabled'}>End turn</button></div></div>`;
+h+=`<div class="row" style="margin-top:8px"><button class="b" data-a="roll" ${mine&&!rolled&&!rolling&&!pending?'':'disabled'}>Roll dice</button><button class="b" data-a="end" ${mine&&rolled&&!pending?'':'disabled'}>End turn</button><button class="b s" data-a="cas:open" ${canT?'':'disabled'}>Casino</button></div></div>`;
 if(pending)h+=`<div class="card"><b>${esc(pending.t)}</b><div class="row" style="margin-top:8px">${pending.ch.map((c,i)=>`<button class="b" data-a="ch:${i}">${esc(c[0])}</button>`).join('')}</div></div>`;
 if(les)h+=`<div class="les">${esc(les)}</div>`}
-h+=`<h3>Players</h3>`+ps.map(p=>`<div class="card"><div class="row"><span><span class="dot" style="background:#${PC[p.c%8].toString(16).padStart(6,'0')}"></span><b>${esc(p.n)}</b>${act&&act.k==p.k&&!done?' (turn)':''}${p.me?' (you)':''}</span><span>$${Math.round(nw(p))}</span></div><div class="mu" style="font-size:12px">Tile ${p.p}/39${p.f?' · finished':''} · ${esc(p.m)}</div></div>`).join('');
+h+=`<h3>Players</h3>`+ps.map(p=>`<div class="card"><div class="row"><span><span class="dot" style="background:#${PC[ps.indexOf(p)%8].toString(16).padStart(6,'0')}"></span><b>${esc(p.n)}</b>${act&&act.k==p.k&&!done?' (turn)':''}${p.me?' (you)':''}</span><span>$${Math.round(nw(p))}</span></div><div class="mu" style="font-size:12px">Tile ${p.p}/39${p.f?' · finished':''} · ${esc(p.m)}</div></div>`).join('');
 const pr=price(R),pv=R?price(R-1):pr;
 h+=`<h3>Market and your portfolio</h3><div class="mu" style="font-size:12px;margin-bottom:6px">Cash: $${Math.round(me.cash)} · Net worth: $${Math.round(nw(me))}. Prices update once per round. Trades cost 1.5% unless you stand on that asset tile.</div>`;
 h+=A.map((a,i)=>{const c=(pr[i]/pv[i]-1)*100;return `<div class="card"><div class="row"><b style="color:${HX(a)}">${a.n}</b><span>${pr[i].toFixed(0)} <span class="${c<0?'dn':'up'}">${c>=0?'+':''}${c.toFixed(1)}%</span></span>${spark(i)}</div><div class="row" style="margin-top:6px"><span class="mu">Held: $${Math.round(me.h[i]*pr[i])}</span><span><button class="b s" data-a="buy:${i}:250" ${canT?'':'disabled'}>Buy 250</button> <button class="b s" data-a="buy:${i}:1000" ${canT?'':'disabled'}>Buy 1000</button> <button class="b s" data-a="sell:${i}" ${canT?'':'disabled'}>Sell all</button></span></div></div>`}).join('');
 h+=`<details><summary>How it works</summary><p class="mu">Roll to move. Land on tiles for events, fees and tips. At the finish line you cash out everything. Final score is cash plus a bonus of $400 for first and $200 for second place. Risky assets can grow more, but they swing hard and crash together. Prices follow a seeded simulation, so every player sees the same market. This is a teaching game, not financial advice.</p></details>`;
 $('#pn').innerHTML=h}
+function lobbyHtml(ps){const host=ps[0]&&ps[0].me;return `<h1>Capital Run lobby</h1><div class="card"><div class="mu">Lobby code</div><div style="font-size:28px;font-weight:700;letter-spacing:.15em">${esc(CODE.toUpperCase())}</div><div class="mu" style="font-size:12px">Friends open the same link, choose Create or join lobby, and type this code.</div></div><h3>Players (${ps.length}/8)</h3>`+ps.map((p,i)=>`<div class="card"><span class="dot" style="background:#${PC[i%8].toString(16).padStart(6,'0')}"></span><b>${esc(p.n)}</b>${i==0?' (host)':''}${p.me?' (you)':''}</div>`).join('')+(host?`<button class="b" data-a="start" style="width:100%" ${ps.length>8?'disabled':''}>Start game</button>`:`<div class="mu">Waiting for the host to start...</div>`)}
 function results(ps){const o=[...ps].sort((a,b)=>a.f-b.f),sc2=o.map((p,i)=>({p,s:Math.round(p.cash+([400,200][i]||0))})).sort((a,b)=>b.s-a.s);
 const base=Math.round(START*Math.pow(1.015,me.t)),mine=Math.round(me.cash);
 return `<h3>Final results</h3>`+sc2.map((x,i)=>`<div class="card row"><span>${i+1}. <b>${esc(x.p.n)}</b>${x.p.me?' (you)':''}</span><span>$${x.s}</span></div>`).join('')+
 `<div class="les">You finished with $${mine} before bonuses. Putting all $${START} in Savings and just walking the board would have given about $${base}. ${mine>=base?'You beat the do-nothing baseline: your risk was rewarded this time, which is not guaranteed.':'You trailed the do-nothing baseline, so take a look at your fees and your biggest losses. Risk does not always pay.'}</div><div style="margin-top:8px"><button class="b" data-a="again">Play again</button></div>`}
 function syncPawns(ps){const keys=new Set(ps.map(p=>p.k));for(const k in pawns)if(!keys.has(k)){sc.remove(pawns[k].g);delete pawns[k]}
-ps.forEach((p,i)=>{let w=pawns[p.k];if(!w){w=pawns[p.k]={g:mkPawn(PC[p.c%8]),cur:p.p,t:0,tgt:p.p,ox:0,oz:0}}
+ps.forEach((p,i)=>{let w=pawns[p.k];if(!w){w=pawns[p.k]={g:mkPawn(PC[i%8]),cur:p.p,t:0,tgt:p.p,ox:0,oz:0}}
 const s=SL[i%8];w.ox=s[0];w.oz=s[1];if(p.p<w.cur){w.cur=p.p;w.t=0}w.tgt=p.p})}
-function join(){const n=$('#nm').value.trim().slice(0,16)||'Player'+Math.floor(Math.random()*90+10);const ps=players();
-me.n=n;me.j=Date.now();me.t=calcR(others.filter(o=>o.n).length?others:[]);me.m='Joined the race.';$('#ov').remove();sync();render()}
+function enterSolo(){CODE='solo';me.go=Date.now();setSeed(me.go);decided=true;render()}
+async function join(solo){const n=$('#nm').value.trim().slice(0,16)||'Player'+Math.floor(Math.random()*90+10);
+let code=$('#cd').value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8);
+me.n=n;me.j=Date.now();me.t=0;me.m='Joined the lobby.';$('#ov').remove();
+if(solo||!base){enterSolo();return}
+if(!code)code=Math.random().toString(36).slice(2,6);CODE=code;render();
+try{room=await base.join('capitalrun-'+code)}catch(e){room=null;enterSolo();return}
+room.onPeers(ch=>{others=ch.peers.filter(p=>!p.isMe&&p.kind==='viewer'&&p.presence&&p.presence.n&&!p.presence.w).map(p=>({...p.presence,k:p.peer}));
+const g=others.map(o=>o.go).filter(Boolean);if(g.length&&!me.go)setSeed(Math.min(...g));
+others.forEach(o=>{const sig=o.t+':'+o.d;if(started()&&seen[o.k]!==undefined&&seen[o.k]!==sig&&o.d&&!dAnim)playDice(o.d);seen[o.k]=sig});render()});
+setTimeout(()=>{decided=true;if(others.some(o=>o.go))me.w=1;else sync();render()},1500)}
 function again(){Object.assign(me,{p:0,cash:START,h:[0,0,0,0,0],t:0,f:0,d:0,m:'Playing again.'});rolled=false;pending=null;les='';sync();render()}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b||b.disabled)return;const [a,x,y]=b.dataset.a.split(':');
-if(a=='join')join();else if(a=='roll')roll();else if(a=='end')endTurn();else if(a=='again')again();
+if(a=='cas'){cAct(x,y);return}if(a=='join')join();else if(a=='solo')join(true);else if(a=='back')location.reload();else if(a=='start'){const ps=players();if(ps[0]&&ps[0].me&&!started()){me.go=Date.now();setSeed(me.go);sync();render()}}else if(a=='roll')roll();else if(a=='end')endTurn();else if(a=='again')again();
 else if(a=='buy'&&myTurn()&&!pending){buy(+x,+y);sync();render()}
 else if(a=='sell'&&myTurn()&&!pending){sell(+x);sync();render()}
 else if(a=='ch'&&pending){const c=pending.ch[+x];pending=null;c[1]();sync();render()}});
-(async()=>{try{const r=await (window.claude&&window.claude.use?window.claude.use('room'):null);if(!r)return;room=r;
-room.onPeers(ch=>{others=ch.peers.filter(p=>!p.isMe&&p.kind==='viewer'&&p.presence&&p.presence.n).map(p=>({...p.presence,k:p.peer}));
-others.forEach(o=>{const sig=o.t+':'+o.d;if(seen[o.k]!==undefined&&seen[o.k]!==sig&&o.d&&!dAnim)playDice(o.d);seen[o.k]=sig});render()});
-sync();render()}catch(e){}})();
+(async()=>{try{const r=await (window.claude&&window.claude.use?window.claude.use('room'):null);if(r)base=r}catch(e){}})();
 </script></body></html>
